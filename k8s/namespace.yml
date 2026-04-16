@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cont-gen
+  labels:
+    name: cont-gen
+    environment: development

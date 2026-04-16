@@ -1,0 +1,99 @@
+# ─────────────────────────────────────────────
+# Deployment: Backend Go  (port 9001)
+# JWT authentication, calls AI Orchestration
+# internally via http-client on port 8086
+# ─────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-go
+  namespace: cont-gen
+  labels:
+    app: backend-go
+    tier: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend-go
+  template:
+    metadata:
+      labels:
+        app: backend-go
+        tier: backend
+    spec:
+      containers:
+        - name: backend-go
+          image: contgen/backend-go:latest   # <-- replace with your image
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9001
+          env:
+            # App
+            - name: APP_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-go-config
+                  key: APP_PORT
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-go-config
+                  key: APP_ENV
+            # JWT
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backend-go-secret
+                  key: JWT_SECRET
+            # Internal AI Orchestration URL
+            - name: AI_ORCHESTRATION_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-go-config
+                  key: AI_ORCHESTRATION_URL
+            # Database
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-go-config
+                  key: DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-go-config
+                  key: DB_PORT
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-go-config
+                  key: DB_NAME
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: backend-go-secret
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backend-go-secret
+                  key: DB_PASSWORD
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9001
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 9001
+            initialDelaySeconds: 10
+            periodSeconds: 5

@@ -1,0 +1,2077 @@
+{
+  "schema_version": "1.0.0",
+  "id": "crmghl.langgraph.scrpy.orchestration",
+  "name": "Scrpy / Elara Orchestration",
+  "description": "Portable description of the Scrpy LangGraph multi-agent orchestration (nodes, edges, models, tools, state contract).",
+  "source": {
+    "graph_factory": "api.langgraph.scrpy_graph.create_scrpy_graph",
+    "state_type": "api.langgraph.state.ScrpyState",
+    "supervisor_chain_factory": "api.langgraph.utils.create_supervisor_chain",
+    "agent_runner": "api.langgraph.utils.run_agent_node"
+  },
+  "state_contract": {
+    "type": "ScrpyState",
+    "fields": {
+      "messages": {
+        "type": "Sequence[BaseMessage]",
+        "merge": "operator.add"
+      },
+      "next": {
+        "type": "str"
+      },
+      "job_id": {
+        "type": "Optional[str]"
+      },
+      "user_id": {
+        "type": "str"
+      },
+      "user_name": {
+        "type": "str"
+      },
+      "tenant_id": {
+        "type": "str"
+      },
+      "authorization": {
+        "type": "str"
+      },
+      "usage_stats": {
+        "type": "dict",
+        "merge": "combine_usage"
+      },
+      "valid_companies": {
+        "type": "List[str]",
+        "merge": "limit_list(last=1000)"
+      }
+    },
+    "merge_functions": {
+      "combine_usage": "api.langgraph.state.combine_usage",
+      "limit_list": "api.langgraph.state.limit_list"
+    }
+  },
+  "graph_input": {
+    "description": "Blueprint contract for the initial StateGraph input used to start/continue a run. This is a JSON-friendly representation of ScrpyState; runtimes should adapt it to LangChain BaseMessage objects.",
+    "json_schema": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "messages",
+        "tenant_id",
+        "user_id",
+        "user_name",
+        "authorization"
+      ],
+      "properties": {
+        "messages": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Chat history in a transport-friendly format. Each entry is converted into a BaseMessage by the runtime.",
+          "items": {
+            "type": "object",
+            "required": [
+              "role",
+              "content"
+            ],
+            "properties": {
+              "role": {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "user",
+                  "assistant",
+                  "tool"
+                ]
+              },
+              "content": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Optional tool name for role=tool."
+              },
+              "tool_call_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Optional tool call correlation id for role=tool."
+              }
+            }
+          }
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        },
+        "user_name": {
+          "type": "string"
+        },
+        "authorization": {
+          "type": "string",
+          "description": "Bearer token string injected into agent context; required by some tools."
+        },
+        "job_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Optional job id (used when running async job workflows)."
+        },
+        "usage_stats": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Aggregated usage by node. Usually empty/null at the start; the graph appends per-turn deltas."
+        },
+        "valid_companies": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional rolling list used by lead workflows; can start empty."
+        },
+        "next": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Routing key. At entrypoint it is typically omitted/null; supervisors set it."
+        }
+      }
+    },
+    "defaults": {
+      "usage_stats": {},
+      "valid_companies": [],
+      "job_id": null,
+      "next": null
+    },
+    "examples": {
+      "minimal_first_turn": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hi, what can you do?"
+          }
+        ],
+        "tenant_id": "tenant_123",
+        "user_id": "user_123",
+        "user_name": "Aslam",
+        "authorization": "Bearer <token>"
+      },
+      "lead_find_then_enrich": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Find 5 marketing agencies in Riyadh."
+          }
+        ],
+        "tenant_id": "tenant_123",
+        "user_id": "user_123",
+        "user_name": "Aslam",
+        "authorization": "Bearer <token>",
+        "valid_companies": []
+      },
+      "system_stats": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "How many leads do I have and what are the top industries?"
+          }
+        ],
+        "tenant_id": "tenant_123",
+        "user_id": "user_123",
+        "user_name": "Aslam",
+        "authorization": "Bearer <token>"
+      }
+    },
+    "notes": [
+      "Runtimes should transform message objects into langchain_core.messages equivalents.",
+      "Supervisors/agents will append new AI/tool messages to `messages` and merge `usage_stats` across turns."
+    ]
+  },
+  "node_input_contracts": {
+    "description": "Per-node requirements for the StateGraph input/state (ScrpyState). This makes the blueprint explicit about what each node expects to exist in state when invoked.",
+    "common": {
+      "supervisor_min": {
+        "required_state_fields": [
+          "messages"
+        ],
+        "optional_state_fields": [
+          "next",
+          "usage_stats",
+          "tenant_id",
+          "user_id",
+          "user_name",
+          "authorization",
+          "job_id",
+          "valid_companies"
+        ],
+        "defaults_if_missing": {
+          "usage_stats": {},
+          "valid_companies": []
+        },
+        "notes": [
+          "Supervisors only read conversation (`messages`) and set `next`.",
+          "Loop guard: if last AI message has no tool calls, supervisors should emit FINISH."
+        ]
+      },
+      "agent_min": {
+        "required_state_fields": [
+          "messages",
+          "tenant_id",
+          "user_id",
+          "user_name",
+          "authorization"
+        ],
+        "optional_state_fields": [
+          "job_id",
+          "valid_companies",
+          "usage_stats",
+          "next"
+        ],
+        "defaults_if_missing": {
+          "usage_stats": {},
+          "valid_companies": []
+        },
+        "notes": [
+          "Agents inject tenant/user context into system prompts and may require authorization for tool calls.",
+          "Agents may append tool results to `messages` (tool role) then continue until no tool_calls."
+        ]
+      }
+    },
+    "nodes": {
+      "ScripySupervisor": {
+        "$ref": "#/node_input_contracts/common/supervisor_min",
+        "required_state_fields": [
+          "messages"
+        ],
+        "sets_state_fields": [
+          "next",
+          "usage_stats"
+        ],
+        "routes": [
+          "GeneralAgent",
+          "LeadEnrichmentSupervisor",
+          "SystemInsightSupervisor",
+          "UserInsightsSupervisor",
+          "CommunicationProposalSupervisor",
+          "CampaignSupervisor",
+          "MediaGeneratorSupervisor",
+          "AdsContentGeneratorSupervisor",
+          "FINISH"
+        ]
+      },
+      "LeadEnrichmentSupervisor": {
+        "$ref": "#/node_input_contracts/common/supervisor_min",
+        "sets_state_fields": [
+          "next",
+          "usage_stats"
+        ],
+        "routes": [
+          "LeadEnrichmentAgent",
+          "FINISH"
+        ]
+      },
+      "SystemInsightSupervisor": {
+        "$ref": "#/node_input_contracts/common/supervisor_min",
+        "sets_state_fields": [
+          "next",
+          "usage_stats"
+        ],
+        "routes": [
+          "SystemInsightAgent",
+          "FINISH"
+        ]
+      },
+      "UserInsightsSupervisor": {
+        "$ref": "#/node_input_contracts/common/supervisor_min",
+        "sets_state_fields": [
+          "next",
+          "usage_stats"
+        ],
+        "routes": [
+          "UserInsightAgent",
+          "FINISH"
+        ]
+      },
+      "CommunicationProposalSupervisor": {
+        "$ref": "#/node_input_contracts/common/supervisor_min",
+        "sets_state_fields": [
+          "next",
+          "usage_stats"
+        ],
+        "routes": [
+          "CommunicationAgent",
+          "FINISH"
+        ]
+      },
+      "CampaignSupervisor": {
+        "$ref": "#/node_input_contracts/common/supervisor_min",
+        "sets_state_fields": [
+          "next",
+          "usage_stats"
+        ],
+        "routes": [
+          "CampaignAgent",
+          "FINISH"
+        ]
+      },
+      "MediaGeneratorSupervisor": {
+        "$ref": "#/node_input_contracts/common/supervisor_min",
+        "sets_state_fields": [
+          "next",
+          "usage_stats"
+        ],
+        "routes": [
+          "MediaAgent",
+          "FINISH"
+        ]
+      },
+      "AdsContentGeneratorSupervisor": {
+        "$ref": "#/node_input_contracts/common/supervisor_min",
+        "sets_state_fields": [
+          "next",
+          "usage_stats"
+        ],
+        "routes": [
+          "AdsContentAgent",
+          "FINISH"
+        ]
+      },
+      "GeneralAgent": {
+        "$ref": "#/node_input_contracts/common/agent_min",
+        "required_state_fields": [
+          "messages",
+          "tenant_id",
+          "user_id",
+          "user_name",
+          "authorization"
+        ],
+        "tools": [],
+        "appends_state_fields": [
+          "messages",
+          "usage_stats"
+        ]
+      },
+      "LeadEnrichmentAgent": {
+        "$ref": "#/node_input_contracts/common/agent_min",
+        "tools": [
+          "find_companies_with_balance_check",
+          "start_enrichment_job_tool_with_quota",
+          "get_company_detail_tool",
+          "enrich_all_companies_tool_with_quota"
+        ],
+        "tool_state_injection": {
+          "tenant_id": {
+            "from_state": "tenant_id"
+          },
+          "user_id": {
+            "from_state": "user_id"
+          },
+          "authorization": {
+            "from_state": "authorization"
+          }
+        },
+        "appends_state_fields": [
+          "messages",
+          "usage_stats",
+          "valid_companies"
+        ]
+      },
+      "SystemInsightAgent": {
+        "$ref": "#/node_input_contracts/common/agent_min",
+        "tools": [
+          "get_campaign_analytics_tool",
+          "get_companies_stats_tool",
+          "get_prospects_list_tool",
+          "get_company_extremes_tool",
+          "get_companies_list_tool",
+          "get_leads_overview_tool",
+          "check_celery_status_tool",
+          "clear_celery_queues_tool",
+          "find_company_in_db_tool"
+        ],
+        "tool_state_injection": {
+          "tenant_id": {
+            "from_state": "tenant_id"
+          }
+        },
+        "appends_state_fields": [
+          "messages",
+          "usage_stats"
+        ]
+      },
+      "UserInsightAgent": {
+        "$ref": "#/node_input_contracts/common/agent_min",
+        "tools": [
+          "manage_users_tool",
+          "get_sub_users_tool",
+          "get_user_profile_tool",
+          "update_user_profile_tool",
+          "change_user_password_tool",
+          "list_available_roles_tool",
+          "list_available_permissions_tool",
+          "create_sub_user_tool",
+          "assign_roles_permissions_tool",
+          "remove_roles_permissions_tool",
+          "toggle_user_status_tool",
+          "delete_user_tool"
+        ],
+        "tool_state_injection": {
+          "tenant_id": {
+            "from_state": "tenant_id"
+          },
+          "user_id": {
+            "from_state": "user_id"
+          },
+          "main_user_id": {
+            "from_state": "user_id"
+          }
+        },
+        "appends_state_fields": [
+          "messages",
+          "usage_stats"
+        ]
+      },
+      "CommunicationAgent": {
+        "$ref": "#/node_input_contracts/common/agent_min",
+        "tools": [
+          "generate_message_tool",
+          "send_sms_tool",
+          "send_whatsapp_tool",
+          "send_email_tool",
+          "initiate_ai_call_tool",
+          "create_proposal_tool",
+          "book_appointment_tool"
+        ],
+        "tool_state_injection": {
+          "tenant_id": {
+            "from_state": "tenant_id"
+          },
+          "user_id": {
+            "from_state": "user_id"
+          }
+        },
+        "appends_state_fields": [
+          "messages",
+          "usage_stats"
+        ]
+      },
+      "CampaignAgent": {
+        "$ref": "#/node_input_contracts/common/agent_min",
+        "tools": [
+          "create_campaign_db_tool"
+        ],
+        "tool_state_injection": {
+          "tenant_id": {
+            "from_state": "tenant_id"
+          }
+        },
+        "appends_state_fields": [
+          "messages",
+          "usage_stats"
+        ]
+      },
+      "MediaAgent": {
+        "$ref": "#/node_input_contracts/common/agent_min",
+        "tools": [
+          "generate_media_tool"
+        ],
+        "appends_state_fields": [
+          "messages",
+          "usage_stats"
+        ]
+      },
+      "AdsContentAgent": {
+        "$ref": "#/node_input_contracts/common/agent_min",
+        "tools": [
+          "market_research_tool",
+          "generate_ad_content_tool"
+        ],
+        "appends_state_fields": [
+          "messages",
+          "usage_stats"
+        ]
+      }
+    }
+  },
+  "models": {
+    "chat_default": {
+      "provider": "openai",
+      "model": "gpt-4o",
+      "stream_usage": true
+    },
+    "web_search": {
+      "provider": "openai",
+      "model": "gpt-4o-search-preview"
+    }
+  },
+  "prompt_library": {
+    "ScripySupervisor.system_prompt": "You are Elara, the intelligent, proactive, and charming Main Supervisor of this multi-agent system.\nYour goal is to understand the user's intent deeply, maintain an engaging conversation, and coordinate your team of specialized supervisors to get the job done while being mindful of quota limits and account status.\n\n**Your Personality:**\n- **Smart & Modern**: You speak like a capable, tech-savvy colleague (think ChatGPT-4o level). You are not robotic.\n- **Proactive**: Don't just wait for orders. If a user's request is vague, ask clarifying questions. If a task is done, suggest logical next steps.\n- **Resource-Aware**: You understand system capabilities and help users make informed decisions.\n- **Engaging**: Use natural language. Acknowledge what the user said before routing.\n- **Curious**: You want to help the user achieve their ultimate goal, not just the immediate task.\n\n**Your Role & Responsibilities:**\n- You are the central orchestrator. You sit at the top of the hierarchy.\n- You route user queries to the most appropriate specialized supervisor.\n- You do NOT execute tasks directly; you delegate to your team.\n- **NEW - Context Awareness**:\n  - If user asks about system stats or capabilities, route to **SystemInsightSupervisor**.\n- **Ambiguous Company Queries**:\n  - If a user asks for \"details about [Company]/[Lead]\" or \"info on [Company]/[Lead]\" without specifying if they want to **Enrich** (find new data) or **Check DB** (existing record):\n    - Do NOT route immediately to `LeadEnrichmentSupervisor` or `SystemInsightSupervisor`.\n    - Route to `GeneralAgent` with instructions to ASK the user: \"Do you want to (1) Enrich/Find new data for this company, or (2) Check your existing database records?\"\n    - Once the user clarifies (e.g., \"enrich it\" or \"check db\"), route to the correct supervisor.\n\n**Your Team (Specialized Supervisors):**\n1. **GeneralAgent**: Handles greetings, clarification questions, and general chat.\n   - Use this if the user's intent is unclear or needs disambiguation (e.g., \"Enrich vs Check DB\").\n2. **LeadEnrichmentSupervisor**: Handles finding NEW leads, enriching companies from external sources.\n   - Use this if the user wants to **enrich**, **find new**, or **update** data from the web/Apollo.\n   - **IMPORTANT**: Tools include enrichment and company search capabilities.\n   - **CRITICAL**: Route ANY requests about **executives**, **people**, **prospects**, **employees**, **management**, or **staff** here. These are considered \"prospects\" and belong to Lead Enrichment.\n3. **SystemInsightSupervisor**: Handles system stats and **checking existing DB records**.\n   - Use this if the user wants to **check existing records**, **find in DB**, or see system health/stats.\n   - **NOTE**: Do NOT route \"people/prospect\" requests here. Lead Enrichment handles people logic.\n4. **UserInsightsSupervisor (Lexi)**: Handles user profiles, team management, and full RBAC lifecycle.\n5. **CommunicationProposalSupervisor**: Handles sending emails, SMS, WhatsApp, AI Calls, and creating proposals.\n6. **CampaignSupervisor**: Handles marketing campaigns (Google/Meta Ads).\n7. **MediaGeneratorSupervisor**: Handles image/video generation.\n8. **AdsContentGeneratorSupervisor**: Handles ad copy writing and research.\n\n**Routing Logic:**\n- **Greetings/General**: If the user says \"Hi\", \"Hello\", \"How are you?\", or asks \"What time is it?\", route to **GeneralAgent**.\n- **Capabilities**: If the user asks \"What can you do?\" or \"Who is Genie?\", route to **GeneralAgent**.\n- **Quota/Balance**: If the user asks \"How many can I enrich?\", \"What's my limit?\", route to **SystemInsightSupervisor**.\n- **Team Management**: route to **UserInsightsSupervisor**.\n- **Enrichment**: route to **LeadEnrichmentSupervisor**.\n- **Uncertainty**: if unsure, route to **GeneralAgent** to ask for clarification.\n\n**CRITICAL: WHEN TO FINISH:**\n- If a sub-supervisor or agent has just responded and their message is the last one in the history, you MUST output `FINISH`.\n\n**Output Format:**\n- A JSON object with the 'next' field indicating the supervisor name.",
+    "GeneralAgent.system_prompt": "You are **Genie**, a helpful AI assistant.\nYou handle general greetings (Hi, Hello), questions about the current date and time, and questions about the capabilities of the system and its supervisors.\n\n**System Capabilities & Supervisors:**\n- **LeadEnrichmentSupervisor (Spectra)**: Finds NEW leads from the web, enriches company data from external sources (Apollo/Web), and finds people/prospects.\n- **SystemInsightSupervisor (Encyclo)**: Checks EXISTING database records, provides system stats, checks Celery job status/queues.\n- **UserInsightsSupervisor (Lexi)**: Manages users, sub-users, profile settings, and team access control.\n- **CommunicationProposalSupervisor (Tele)**: Sends messages, emails, proposals, and manages bookings.\n- **CampaignSupervisor (Stratis)**: Creates and manages marketing campaigns.\n- **MediaGeneratorSupervisor (Prisma)**: Generates images and videos.\n- **AdsContentGeneratorSupervisor (Spark)**: Generates ad content/copy and performs market research.\n\nIf the user asks what a specific supervisor can do, use the information above to answer.\nIf the user's query is unclear, ask a clarifying question before proceeding.",
+    "LeadEnrichmentSupervisor.system_prompt": "You are Spectra (Lead Enrichment Supervisor).\n\n**Role & Responsibilities:**\n- Find, enrich, and manage company leads.\n\n**Rules:**\n- Validate URLs.\n- If user asks for company details, check DB first.\n- If finding leads, provide list first and ask if they want to enrich.\n- Enrichment triggers: after a search, phrases like \"enrich\", \"go for it\" mean enrich found companies.\n- If LeadEnrichmentAgent has just responded, output FINISH.",
+    "LeadEnrichmentAgent.system_prompt": "You are **Spectra** (Lead Enrichment Agent).\n\n**Your Capabilities:**\n- Find leads: `find_companies_with_balance_check`\n- Start enrichment: `start_enrichment_job_tool_with_quota`\n- Company details: `get_company_detail_tool`\n- Enrich entire database: `enrich_all_companies_tool_with_quota` (only when explicitly requested)\n\n**Workflow Rules:**\n1. Present search results clearly after finding companies.\n2. Wait for explicit confirmation (\"yes\", \"enrich\", \"go\") before starting enrichment.\n3. Always provide a follow-up question after presenting results.\n4. Pass tenant_id and user_id from context when calling tools.",
+    "SystemInsightSupervisor.system_prompt": "You are encyclo (System Insight Supervisor).\n\n**Role & Responsibilities:**\n- Provide system statistics and insights.\n- Find specific companies in existing DB.\n- Check system health (Celery) and maintenance (clear queues).\n\n**Rules:**\n- Use the tools; do not make up numbers.\n- If SystemInsightAgent has just responded, output FINISH.\n- Ensure tenant_id/user_id are passed to tools where required.",
+    "SystemInsightAgent.system_prompt": "You are **Core** (System Insight Agent), the analytical brain of this system.\n\n**Capabilities:**\n- System Health: `check_celery_status_tool`, `clear_celery_queues_tool` (require explicit confirmation)\n- Campaign Analytics: `get_campaign_analytics_tool`\n- Companies & Prospects: `get_companies_stats_tool`, `get_company_extremes_tool`, `get_companies_list_tool`, `find_company_in_db_tool`, `get_prospects_list_tool`, `get_leads_overview_tool`\n\nAlways summarize key findings first, then offer details.",
+    "UserInsightsSupervisor.system_prompt": "You are Lexi (User Insights Supervisor).\n\n**Role & Responsibilities:**\n- User profiles, team/sub-users, RBAC (assign/remove roles & permissions), activate/deactivate, delete users.\n\n**Access Control:**\n- Only main users (utype='user') and system admins can create/delete/deactivate users.\n\n**Rule:** If UserInsightAgent has just responded, output FINISH.",
+    "UserInsightAgent.system_prompt": "You are **Lexi** (User & Team Management Agent). You manage user accounts, team members, roles, and permissions.\n\n**Capabilities:**\n- View users: `get_sub_users_tool`, `get_user_profile_tool`\n- Update profile: `update_user_profile_tool`\n- Change password: `change_user_password_tool` (requires old password)\n- Create sub-user: `create_sub_user_tool`\n- List roles/permissions: `list_available_roles_tool`, `list_available_permissions_tool`\n- Assign/remove roles/permissions: `assign_roles_permissions_tool`, `remove_roles_permissions_tool`\n- Activate/deactivate: `toggle_user_status_tool`\n- Delete user: `delete_user_tool`\n\nNever display passwords in plain text. Warn before deleting users.",
+    "CommunicationProposalSupervisor.system_prompt": "You are Tele (Communication Supervisor).\n\n**Role:** External communications (Email/SMS/WhatsApp/AI Calls), proposals, bookings.\n\n**Rules:**\n- If user wants to send without content, generate a draft first.\n- Confirm channel if not specified.\n- If CommunicationAgent has just responded, output FINISH.",
+    "CommunicationAgent.system_prompt": "You are **Echo** (Communication Agent). Draft messages with AI and send via Email, SMS, WhatsApp, or AI Voice Call.\nAlways generate a draft first using `generate_message_tool` if the user hasn't provided full content, then ask for confirmation or send it with the chosen channel tool.",
+    "CampaignSupervisor.system_prompt": "You are Strategos (Campaign Supervisor).\n\n**Role:** Plan/manage marketing campaigns.\n\n**Rules:**\n- Require budget and duration for campaign creation.\n- Default to DRAFT status.\n- If CampaignAgent has just responded, output FINISH.",
+    "CampaignAgent.system_prompt": "You are **Stratis** (Campaign Agent). Create campaigns using `create_campaign_db_tool`.",
+    "MediaGeneratorSupervisor.system_prompt": "You are Pixel (Media Supervisor).\n\n**Role:** Generate visual assets (images/videos).\n\n**Rules:**\n- Clarify image vs video if ambiguous.\n- If MediaAgent has just responded, output FINISH.",
+    "MediaAgent.system_prompt": "You are **Prisma** (Media Agent). Generate images/videos using `generate_media_tool`.",
+    "AdsContentGeneratorSupervisor.system_prompt": "You are Postia (Ads Content Supervisor).\n\n**Role:** Create ad copy/content and market research.\n\n**Rules:**\n- Tailor content to platform.\n- If AdsContentAgent has just responded, output FINISH.",
+    "AdsContentAgent.system_prompt": "You are **Spark** (Ads Content Agent). Generate ad content and do market research using `market_research_tool` and `generate_ad_content_tool`."
+  },
+  "external_services": {
+    "PYTHON_SUPERVISOR_URL": {
+      "default": "http://backend-scripy:8000"
+    },
+    "COMMUNICATION_GO_URL": {
+      "default": "http://communication-go:8080"
+    }
+  },
+  "graph": {
+    "entrypoint": "ScripySupervisor",
+    "end": "END",
+    "nodes": [
+      {
+        "id": "ScripySupervisor",
+        "kind": "supervisor",
+        "persona": "Elara",
+        "impl": "api.langgraph.features.main.supervisor.scripy_supervisor_node",
+        "llm": "chat_default",
+        "description": "Root supervisor. Routes user intent to the correct feature supervisor/agent. Does not execute tools directly.",
+        "system_prompt_ref": "ScripySupervisor.system_prompt",
+        "routes": [
+          "GeneralAgent",
+          "LeadEnrichmentSupervisor",
+          "SystemInsightSupervisor",
+          "UserInsightsSupervisor",
+          "CommunicationProposalSupervisor",
+          "CampaignSupervisor",
+          "MediaGeneratorSupervisor",
+          "AdsContentGeneratorSupervisor",
+          "FINISH"
+        ],
+        "structured_output_key": "next",
+        "loop_guard": "If last message is AIMessage without tool_calls => FINISH"
+      },
+      {
+        "id": "GeneralAgent",
+        "kind": "agent",
+        "persona": "Genie",
+        "impl": "api.langgraph.features.main.agent.general_agent_node",
+        "llm": "chat_default",
+        "description": "General assistant for greetings, capability questions, and clarification.",
+        "system_prompt_ref": "GeneralAgent.system_prompt",
+        "tools": [],
+        "returns_to": "END"
+      },
+      {
+        "id": "LeadEnrichmentSupervisor",
+        "kind": "supervisor",
+        "persona": "Spectra (supervisor)",
+        "impl": "api.langgraph.features.leads.supervisor.lead_supervisor_node",
+        "llm": "chat_default",
+        "description": "Supervises lead/company finding and enrichment workflows.",
+        "system_prompt_ref": "LeadEnrichmentSupervisor.system_prompt",
+        "routes": [
+          "LeadEnrichmentAgent",
+          "FINISH"
+        ],
+        "structured_output_key": "next"
+      },
+      {
+        "id": "LeadEnrichmentAgent",
+        "kind": "agent",
+        "persona": "Spectra (agent)",
+        "impl": "api.langgraph.features.leads.agent.lead_enrichment_agent_node",
+        "llm": "chat_default",
+        "description": "Finds companies via web search, starts enrichment jobs, and fetches company details.",
+        "system_prompt_ref": "LeadEnrichmentAgent.system_prompt",
+        "tools": [
+          "find_companies_with_balance_check",
+          "start_enrichment_job_tool_with_quota",
+          "get_company_detail_tool",
+          "enrich_all_companies_tool_with_quota"
+        ],
+        "returns_to": "LeadEnrichmentSupervisor"
+      },
+      {
+        "id": "SystemInsightSupervisor",
+        "kind": "supervisor",
+        "persona": "Encyclo (supervisor)",
+        "impl": "api.langgraph.features.system.supervisor.system_supervisor_node",
+        "llm": "chat_default",
+        "description": "Supervises system insights: DB stats, company lookups, Celery status/maintenance.",
+        "system_prompt_ref": "SystemInsightSupervisor.system_prompt",
+        "routes": [
+          "SystemInsightAgent",
+          "FINISH"
+        ],
+        "structured_output_key": "next"
+      },
+      {
+        "id": "SystemInsightAgent",
+        "kind": "agent",
+        "persona": "Core",
+        "impl": "api.langgraph.features.system.agent.system_insight_agent_node",
+        "llm": "chat_default",
+        "description": "Executes DB and Celery tools to answer analytics/health questions.",
+        "system_prompt_ref": "SystemInsightAgent.system_prompt",
+        "tools": [
+          "get_campaign_analytics_tool",
+          "get_companies_stats_tool",
+          "get_prospects_list_tool",
+          "get_company_extremes_tool",
+          "get_companies_list_tool",
+          "get_leads_overview_tool",
+          "check_celery_status_tool",
+          "clear_celery_queues_tool",
+          "find_company_in_db_tool"
+        ],
+        "returns_to": "SystemInsightSupervisor"
+      },
+      {
+        "id": "UserInsightsSupervisor",
+        "kind": "supervisor",
+        "persona": "Lexi (supervisor)",
+        "impl": "api.langgraph.features.users.supervisor.user_supervisor_node",
+        "llm": "chat_default",
+        "description": "Supervises RBAC and user/team lifecycle operations.",
+        "system_prompt_ref": "UserInsightsSupervisor.system_prompt",
+        "routes": [
+          "UserInsightAgent",
+          "FINISH"
+        ],
+        "structured_output_key": "next"
+      },
+      {
+        "id": "UserInsightAgent",
+        "kind": "agent",
+        "persona": "Lexi (agent)",
+        "impl": "api.langgraph.features.users.agent.user_insight_agent_node",
+        "llm": "chat_default",
+        "description": "Performs user profile/team operations and RBAC changes via DB tools.",
+        "system_prompt_ref": "UserInsightAgent.system_prompt",
+        "tools": [
+          "manage_users_tool",
+          "get_sub_users_tool",
+          "get_user_profile_tool",
+          "update_user_profile_tool",
+          "change_user_password_tool",
+          "list_available_roles_tool",
+          "list_available_permissions_tool",
+          "create_sub_user_tool",
+          "assign_roles_permissions_tool",
+          "remove_roles_permissions_tool",
+          "toggle_user_status_tool",
+          "delete_user_tool"
+        ],
+        "returns_to": "UserInsightsSupervisor"
+      },
+      {
+        "id": "CommunicationProposalSupervisor",
+        "kind": "supervisor",
+        "persona": "Tele (supervisor)",
+        "impl": "api.langgraph.features.communication.supervisor.comm_supervisor_node",
+        "llm": "chat_default",
+        "description": "Supervises outbound communications, proposals, and bookings.",
+        "system_prompt_ref": "CommunicationProposalSupervisor.system_prompt",
+        "routes": [
+          "CommunicationAgent",
+          "FINISH"
+        ],
+        "structured_output_key": "next"
+      },
+      {
+        "id": "CommunicationAgent",
+        "kind": "agent",
+        "persona": "Echo",
+        "impl": "api.langgraph.features.communication.agent.comm_agent_node",
+        "llm": "chat_default",
+        "description": "Generates drafts and sends via communication services (email/sms/whatsapp/ai calls).",
+        "system_prompt_ref": "CommunicationAgent.system_prompt",
+        "tools": [
+          "generate_message_tool",
+          "send_sms_tool",
+          "send_whatsapp_tool",
+          "send_email_tool",
+          "initiate_ai_call_tool",
+          "create_proposal_tool",
+          "book_appointment_tool"
+        ],
+        "returns_to": "CommunicationProposalSupervisor"
+      },
+      {
+        "id": "CampaignSupervisor",
+        "kind": "supervisor",
+        "persona": "Strategos (supervisor)",
+        "impl": "api.langgraph.features.campaigns.supervisor.campaign_supervisor_node",
+        "llm": "chat_default",
+        "description": "Supervises marketing campaign planning/creation.",
+        "system_prompt_ref": "CampaignSupervisor.system_prompt",
+        "routes": [
+          "CampaignAgent",
+          "FINISH"
+        ],
+        "structured_output_key": "next"
+      },
+      {
+        "id": "CampaignAgent",
+        "kind": "agent",
+        "persona": "Stratis",
+        "impl": "api.langgraph.features.campaigns.agent.campaign_agent_node",
+        "llm": "chat_default",
+        "description": "Creates campaign DB records.",
+        "system_prompt_ref": "CampaignAgent.system_prompt",
+        "tools": [
+          "create_campaign_db_tool"
+        ],
+        "returns_to": "CampaignSupervisor"
+      },
+      {
+        "id": "MediaGeneratorSupervisor",
+        "kind": "supervisor",
+        "persona": "Pixel (supervisor)",
+        "impl": "api.langgraph.features.media.supervisor.media_supervisor_node",
+        "llm": "chat_default",
+        "description": "Supervises media generation requests.",
+        "system_prompt_ref": "MediaGeneratorSupervisor.system_prompt",
+        "routes": [
+          "MediaAgent",
+          "FINISH"
+        ],
+        "structured_output_key": "next"
+      },
+      {
+        "id": "MediaAgent",
+        "kind": "agent",
+        "persona": "Prisma",
+        "impl": "api.langgraph.features.media.agent.media_agent_node",
+        "llm": "chat_default",
+        "description": "Calls media generator service to create images/videos.",
+        "system_prompt_ref": "MediaAgent.system_prompt",
+        "tools": [
+          "generate_media_tool"
+        ],
+        "returns_to": "MediaGeneratorSupervisor"
+      },
+      {
+        "id": "AdsContentGeneratorSupervisor",
+        "kind": "supervisor",
+        "persona": "Postia (supervisor)",
+        "impl": "api.langgraph.features.ads.supervisor.ads_supervisor_node",
+        "llm": "chat_default",
+        "description": "Supervises ad copy + research requests.",
+        "system_prompt_ref": "AdsContentGeneratorSupervisor.system_prompt",
+        "routes": [
+          "AdsContentAgent",
+          "FINISH"
+        ],
+        "structured_output_key": "next"
+      },
+      {
+        "id": "AdsContentAgent",
+        "kind": "agent",
+        "persona": "Spark",
+        "impl": "api.langgraph.features.ads.agent.ads_content_agent_node",
+        "llm": "chat_default",
+        "description": "Performs market research and generates ad content.",
+        "system_prompt_ref": "AdsContentAgent.system_prompt",
+        "tools": [
+          "market_research_tool",
+          "generate_ad_content_tool"
+        ],
+        "returns_to": "AdsContentGeneratorSupervisor"
+      }
+    ],
+    "edges": [
+      {
+        "from": "ScripySupervisor",
+        "type": "conditional",
+        "state_key": "next",
+        "to": {
+          "LeadEnrichmentSupervisor": "LeadEnrichmentSupervisor",
+          "GeneralAgent": "GeneralAgent",
+          "SystemInsightSupervisor": "SystemInsightSupervisor",
+          "UserInsightsSupervisor": "UserInsightsSupervisor",
+          "CommunicationProposalSupervisor": "CommunicationProposalSupervisor",
+          "CampaignSupervisor": "CampaignSupervisor",
+          "MediaGeneratorSupervisor": "MediaGeneratorSupervisor",
+          "AdsContentGeneratorSupervisor": "AdsContentGeneratorSupervisor",
+          "FINISH": "END"
+        }
+      },
+      {
+        "from": "GeneralAgent",
+        "type": "direct",
+        "to": "END"
+      },
+      {
+        "from": "LeadEnrichmentSupervisor",
+        "type": "conditional",
+        "state_key": "next",
+        "to": {
+          "LeadEnrichmentAgent": "LeadEnrichmentAgent",
+          "FINISH": "ScripySupervisor"
+        }
+      },
+      {
+        "from": "LeadEnrichmentAgent",
+        "type": "direct",
+        "to": "LeadEnrichmentSupervisor"
+      },
+      {
+        "from": "SystemInsightSupervisor",
+        "type": "conditional",
+        "state_key": "next",
+        "to": {
+          "SystemInsightAgent": "SystemInsightAgent",
+          "FINISH": "ScripySupervisor"
+        }
+      },
+      {
+        "from": "SystemInsightAgent",
+        "type": "direct",
+        "to": "SystemInsightSupervisor"
+      },
+      {
+        "from": "UserInsightsSupervisor",
+        "type": "conditional",
+        "state_key": "next",
+        "to": {
+          "UserInsightAgent": "UserInsightAgent",
+          "FINISH": "ScripySupervisor"
+        }
+      },
+      {
+        "from": "UserInsightAgent",
+        "type": "direct",
+        "to": "UserInsightsSupervisor"
+      },
+      {
+        "from": "CommunicationProposalSupervisor",
+        "type": "conditional",
+        "state_key": "next",
+        "to": {
+          "CommunicationAgent": "CommunicationAgent",
+          "FINISH": "ScripySupervisor"
+        }
+      },
+      {
+        "from": "CommunicationAgent",
+        "type": "direct",
+        "to": "CommunicationProposalSupervisor"
+      },
+      {
+        "from": "CampaignSupervisor",
+        "type": "conditional",
+        "state_key": "next",
+        "to": {
+          "CampaignAgent": "CampaignAgent",
+          "FINISH": "ScripySupervisor"
+        }
+      },
+      {
+        "from": "CampaignAgent",
+        "type": "direct",
+        "to": "CampaignSupervisor"
+      },
+      {
+        "from": "MediaGeneratorSupervisor",
+        "type": "conditional",
+        "state_key": "next",
+        "to": {
+          "MediaAgent": "MediaAgent",
+          "FINISH": "ScripySupervisor"
+        }
+      },
+      {
+        "from": "MediaAgent",
+        "type": "direct",
+        "to": "MediaGeneratorSupervisor"
+      },
+      {
+        "from": "AdsContentGeneratorSupervisor",
+        "type": "conditional",
+        "state_key": "next",
+        "to": {
+          "AdsContentAgent": "AdsContentAgent",
+          "FINISH": "ScripySupervisor"
+        }
+      },
+      {
+        "from": "AdsContentAgent",
+        "type": "direct",
+        "to": "AdsContentGeneratorSupervisor"
+      }
+    ]
+  },
+  "tool_registry": [
+    {
+      "name": "find_companies_with_balance_check",
+      "impl": "api.langgraph.features.leads.tools_with_quota.find_companies_tool",
+      "description": "Find company websites for a query via OpenAI web search preview and validate candidate URLs.",
+      "model": "web_search",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "query",
+          "quantity",
+          "authorization"
+        ],
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "authorization": {
+            "type": "string",
+            "description": "Bearer token (passed through; may be used for auth/quota in other deployments)."
+          }
+        }
+      },
+      "output_schema": {
+        "oneOf": [
+          {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "url"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "error"
+            ],
+            "properties": {
+              "error": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "side_effects": [
+        "network:openai",
+        "network:http(url_validation)"
+      ]
+    },
+    {
+      "name": "start_enrichment_job_tool_with_quota",
+      "impl": "api.langgraph.features.leads.tools_with_quota.start_enrichment_job_tool_with_quota",
+      "description": "Create a Job + initial Company rows, publish Kafka STARTED event, enqueue Celery enrichment batch.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "companies",
+          "tenant_id",
+          "user_id",
+          "authorization"
+        ],
+        "properties": {
+          "companies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "url"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "authorization": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object"
+      },
+      "side_effects": [
+        "db",
+        "kafka:scrpy.job.status",
+        "celery:process_enrichment_batch"
+      ]
+    },
+    {
+      "name": "enrich_all_companies_tool_with_quota",
+      "impl": "api.langgraph.features.leads.tools_with_quota.enrich_all_companies_tool_with_quota",
+      "description": "Enrich existing tenant companies (up to limit) by enqueuing a Celery batch job.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "user_id",
+          "authorization"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "authorization": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 100,
+            "minimum": 1
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object"
+      },
+      "side_effects": [
+        "db",
+        "kafka:scrpy.job.status",
+        "celery:process_enrichment_batch"
+      ]
+    },
+    {
+      "name": "get_company_detail_tool",
+      "impl": "api.langgraph.features.leads.tools.get_company_detail_tool",
+      "description": "Fetch one company details string from DB by name or website match.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "name_or_url",
+          "tenant_id"
+        ],
+        "properties": {
+          "name_or_url": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "string"
+      },
+      "side_effects": [
+        "db:read"
+      ]
+    },
+    {
+      "name": "get_campaign_analytics_tool",
+      "impl": "api.langgraph.features.system.tools.get_campaign_analytics_tool",
+      "description": "List campaigns with status/budget by tenant.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "tenant_id"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      },
+      "side_effects": [
+        "db:read"
+      ]
+    },
+    {
+      "name": "get_companies_stats_tool",
+      "impl": "api.langgraph.features.system.tools.get_companies_stats_tool",
+      "description": "Return total companies and top industries.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "tenant_id"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object"
+      },
+      "side_effects": [
+        "db:aggregate"
+      ]
+    },
+    {
+      "name": "get_company_extremes_tool",
+      "impl": "api.langgraph.features.system.tools.get_company_extremes_tool",
+      "description": "Top companies by prospect count.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "tenant_id"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      },
+      "side_effects": [
+        "db:aggregate"
+      ]
+    },
+    {
+      "name": "get_companies_list_tool",
+      "impl": "api.langgraph.features.system.tools.get_companies_list_tool",
+      "description": "List recent companies for tenant.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "tenant_id"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "default": 10,
+            "minimum": 1
+          }
+        }
+      },
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      },
+      "side_effects": [
+        "db:read"
+      ]
+    },
+    {
+      "name": "get_prospects_list_tool",
+      "impl": "api.langgraph.features.system.tools.get_prospects_list_tool",
+      "description": "List prospects optionally filtered by company name.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "tenant_id"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string"
+          },
+          "company_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "default": 10,
+            "minimum": 1
+          }
+        }
+      },
+      "output_schema": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      },
+      "side_effects": [
+        "db:read"
+      ]
+    },
+    {
+      "name": "get_leads_overview_tool",
+      "impl": "api.langgraph.features.system.tools.get_leads_overview_tool",
+      "description": "Return total prospects and breakdown by email_status.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "tenant_id"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "object"
+      },
+      "side_effects": [
+        "db:aggregate"
+      ]
+    },
+    {
+      "name": "check_celery_status_tool",
+      "impl": "api.langgraph.features.system.tools.check_celery_status_tool",
+      "description": "Inspect Celery active/reserved/scheduled tasks.",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "output_schema": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "side_effects": [
+        "celery:inspect"
+      ]
+    },
+    {
+      "name": "clear_celery_queues_tool",
+      "impl": "api.langgraph.features.system.tools.clear_celery_queues_tool",
+      "description": "Purge all Celery queued tasks (dangerous).",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "output_schema": {
+        "type": [
+          "string",
+          "object"
+        ]
+      },
+      "side_effects": [
+        "celery:purge"
+      ],
+      "safety": {
+        "requires_human_confirmation": true
+      }
+    },
+    {
+      "name": "find_company_in_db_tool",
+      "impl": "api.langgraph.features.system.tools.find_company_in_db_tool",
+      "description": "Find companies in DB by name or website/domain (tenant scoped).",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "query"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": [
+          "string",
+          "array"
+        ]
+      },
+      "side_effects": [
+        "db:read"
+      ]
+    },
+    {
+      "name": "get_sub_users_tool",
+      "impl": "api.langgraph.features.users.tools.get_sub_users_tool",
+      "description": "List tenant team members/sub-users.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "tenant_id"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "string"
+      },
+      "side_effects": [
+        "db:read"
+      ]
+    },
+    {
+      "name": "get_user_profile_tool",
+      "impl": "api.langgraph.features.users.tools.get_user_profile_tool",
+      "description": "Fetch a user's profile (non-sensitive fields).",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "user_id"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "string"
+      },
+      "side_effects": [
+        "db:read"
+      ]
+    },
+    {
+      "name": "update_user_profile_tool",
+      "impl": "api.langgraph.features.users.tools.update_user_profile_tool",
+      "description": "Update user name/email/phone (at least one field).",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "user_id"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "output_schema": {
+        "type": "string"
+      },
+      "side_effects": [
+        "db:write"
+      ]
+    },
+    {
+      "name": "change_user_password_tool",
+      "impl": "api.langgraph.features.users.tools.change_user_password_tool",
+      "description": "Change password with old-password verification.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "user_id",
+          "old_password",
+          "new_password"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "old_password": {
+            "type": "string"
+          },
+          "new_password": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "string"
+      },
+      "side_effects": [
+        "db:write"
+      ]
+    },
+    {
+      "name": "list_available_roles_tool",
+      "impl": "api.langgraph.features.users.tools.list_available_roles_tool",
+      "description": "List roles (excluding system_admin).",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "output_schema": {
+        "type": "string"
+      },
+      "side_effects": [
+        "db:read"
+      ]
+    },
+    {
+      "name": "list_available_permissions_tool",
+      "impl": "api.langgraph.features.users.tools.list_available_permissions_tool",
+      "description": "List permissions.",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "output_schema": {
+        "type": "string"
+      },
+      "side_effects": [
+        "db:read"
+      ]
+    },
+    {
+      "name": "create_sub_user_tool",
+      "impl": "api.langgraph.features.users.tools.create_sub_user_tool",
+      "description": "Create a new sub-user account and link to tenant team (creator must be allowed).",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "main_user_id",
+          "name",
+          "email",
+          "password"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string"
+          },
+          "main_user_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "string"
+      },
+      "side_effects": [
+        "db:write"
+      ]
+    },
+    {
+      "name": "assign_roles_permissions_tool",
+      "impl": "api.langgraph.features.users.tools.assign_roles_permissions_tool",
+      "description": "Assign roles and/or permissions to a user.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "user_id"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "role_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "permission_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "output_schema": {
+        "type": "string"
+      },
+      "side_effects": [
+        "db:write"
+      ]
+    },
+    {
+      "name": "remove_roles_permissions_tool",
+      "impl": "api.langgraph.features.users.tools.remove_roles_permissions_tool",
+      "description": "Remove roles and/or permissions from a user.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "user_id"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "role_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "permission_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "output_schema": {
+        "type": "string"
+      },
+      "side_effects": [
+        "db:write"
+      ]
+    },
+    {
+      "name": "toggle_user_status_tool",
+      "impl": "api.langgraph.features.users.tools.toggle_user_status_tool",
+      "description": "Activate or deactivate a user account.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "user_id",
+          "is_active"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "is_active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "string"
+      },
+      "side_effects": [
+        "db:write"
+      ]
+    },
+    {
+      "name": "delete_user_tool",
+      "impl": "api.langgraph.features.users.tools.delete_user_tool",
+      "description": "Permanently delete a user and related RBAC/team records.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "user_id"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "string"
+      },
+      "side_effects": [
+        "db:write"
+      ],
+      "safety": {
+        "requires_human_confirmation": true
+      }
+    },
+    {
+      "name": "manage_users_tool",
+      "impl": "api.langgraph.features.users.tools.manage_users_tool",
+      "description": "Legacy compatibility tool (prefer specific tools).",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "action",
+          "tenant_id"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "user_details": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "output_schema": {
+        "type": "string"
+      }
+    },
+    {
+      "name": "generate_message_tool",
+      "impl": "api.langgraph.features.communication.tools.generate_message_tool",
+      "description": "Generate a draft message via Python Supervisor service.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "type",
+          "prospect_id",
+          "prospect_name",
+          "sender_name",
+          "tenant_id"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "email",
+              "sms",
+              "whatsapp",
+              "linkedin"
+            ]
+          },
+          "prospect_id": {
+            "type": "string"
+          },
+          "prospect_name": {
+            "type": "string"
+          },
+          "sender_name": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "output_schema": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "side_effects": [
+        "http:PYTHON_SUPERVISOR_URL"
+      ]
+    },
+    {
+      "name": "send_sms_tool",
+      "impl": "api.langgraph.features.communication.tools.send_sms_tool",
+      "description": "Send an SMS via communication-go.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "from_number",
+          "to_number",
+          "body",
+          "tenant_id",
+          "user_id"
+        ],
+        "properties": {
+          "from_number": {
+            "type": "string"
+          },
+          "to_number": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "side_effects": [
+        "http:COMMUNICATION_GO_URL"
+      ]
+    },
+    {
+      "name": "send_whatsapp_tool",
+      "impl": "api.langgraph.features.communication.tools.send_whatsapp_tool",
+      "description": "Send a WhatsApp message via communication-go.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "from_number",
+          "to_number",
+          "body",
+          "tenant_id",
+          "user_id"
+        ],
+        "properties": {
+          "from_number": {
+            "type": "string"
+          },
+          "to_number": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "side_effects": [
+        "http:COMMUNICATION_GO_URL"
+      ]
+    },
+    {
+      "name": "send_email_tool",
+      "impl": "api.langgraph.features.communication.tools.send_email_tool",
+      "description": "Send an email via communication-go.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "to",
+          "subject",
+          "body",
+          "tenant_id",
+          "user_id"
+        ],
+        "properties": {
+          "to": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "subject": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "from_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "output_schema": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "side_effects": [
+        "http:COMMUNICATION_GO_URL"
+      ]
+    },
+    {
+      "name": "initiate_ai_call_tool",
+      "impl": "api.langgraph.features.communication.tools.initiate_ai_call_tool",
+      "description": "Initiate an AI voice call via communication-go.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "to_number",
+          "tenant_id",
+          "user_id"
+        ],
+        "properties": {
+          "to_number": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "prospect_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "output_schema": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "side_effects": [
+        "http:COMMUNICATION_GO_URL"
+      ]
+    },
+    {
+      "name": "create_proposal_tool",
+      "impl": "api.langgraph.features.communication.tools.create_proposal_tool",
+      "description": "Generate a proposal via python-supervisor proposal endpoint.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "tenant_id",
+          "user_id",
+          "prospect_id",
+          "company_id"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "prospect_id": {
+            "type": "string"
+          },
+          "company_id": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": [
+          "object",
+          "string"
+        ]
+      },
+      "side_effects": [
+        "http:PYTHON_SUPERVISOR_URL"
+      ]
+    },
+    {
+      "name": "book_appointment_tool",
+      "impl": "api.langgraph.features.communication.tools.book_appointment_tool",
+      "description": "Placeholder appointment booking tool.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "client_name",
+          "time"
+        ],
+        "properties": {
+          "client_name": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "string"
+      }
+    },
+    {
+      "name": "create_campaign_db_tool",
+      "impl": "api.langgraph.features.campaigns.tools.create_campaign_db_tool",
+      "description": "Create a campaign DB record (status=DRAFT).",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "tenant_id",
+          "ads_type",
+          "budget",
+          "duration_days"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "ads_type": {
+            "type": "string",
+            "enum": [
+              "google",
+              "meta"
+            ]
+          },
+          "budget": {
+            "type": "number"
+          },
+          "duration_days": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "output_schema": {
+        "type": "string"
+      },
+      "side_effects": [
+        "db:write"
+      ]
+    },
+    {
+      "name": "generate_media_tool",
+      "impl": "api.langgraph.features.media.tools.generate_media_tool",
+      "description": "Generate image/video via media-generator-go.",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "prompt"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video"
+            ],
+            "default": "image"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "string"
+      },
+      "side_effects": [
+        "http:MEDIA_GENERATOR_GO_GENERATE_URL"
+      ]
+    },
+    {
+      "name": "market_research_tool",
+      "impl": "api.langgraph.features.ads.tools.market_research_tool",
+      "description": "Perform market research on a topic (placeholder implementation).",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "topic"
+        ],
+        "properties": {
+          "topic": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "string"
+      }
+    },
+    {
+      "name": "generate_ad_content_tool",
+      "impl": "api.langgraph.features.ads.tools.generate_ad_content_tool",
+      "description": "Generate ad copy for a platform (placeholder implementation).",
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "product_name",
+          "platform"
+        ],
+        "properties": {
+          "product_name": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          }
+        }
+      },
+      "output_schema": {
+        "type": "string"
+      }
+    }
+  ]
+}

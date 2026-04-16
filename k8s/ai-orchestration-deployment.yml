@@ -1,0 +1,88 @@
+# ─────────────────────────────────────────────
+# Deployment: AI Orchestration  (port 8086)
+# INTERNAL ONLY — no public ingress
+# Called exclusively by backend-go using
+# x-user-id header for authentication
+# ─────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-orchestration
+  namespace: cont-gen
+  labels:
+    app: ai-orchestration
+    tier: ai
+    visibility: internal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-orchestration
+  template:
+    metadata:
+      labels:
+        app: ai-orchestration
+        tier: ai
+        visibility: internal
+    spec:
+      containers:
+        - name: ai-orchestration
+          image: contgen/ai-orchestration:latest   # <-- replace with your image
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8086
+          env:
+            - name: APP_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: ai-orchestration-config
+                  key: APP_PORT
+            - name: APP_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: ai-orchestration-config
+                  key: APP_ENV
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ai-orchestration-config
+                  key: DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: ai-orchestration-config
+                  key: DB_PORT
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: ai-orchestration-config
+                  key: DB_NAME
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ai-orchestration-secret
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ai-orchestration-secret
+                  key: DB_PASSWORD
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "2000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8086
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8086
+            initialDelaySeconds: 15
+            periodSeconds: 5

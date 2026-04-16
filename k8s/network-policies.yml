@@ -1,0 +1,267 @@
+# ═══════════════════════════════════════════════════════════════
+# NETWORK POLICIES — cont-gen namespace
+#
+# Core rule: AI Orchestration is ONLY reachable from backend-go.
+# All other ingress to ai-orchestration is denied.
+# ═══════════════════════════════════════════════════════════════
+
+# ─────────────────────────────────────────────
+# Policy 1: Default deny ALL ingress in namespace
+# Apply this first, then open specific paths below.
+# ─────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: cont-gen
+spec:
+  podSelector: {}   # applies to ALL pods in namespace
+  policyTypes:
+    - Ingress
+
+---
+# ─────────────────────────────────────────────
+# Policy 2: Allow frontend/Kong → backend-go (9001)
+# ─────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kong-to-backend-go
+  namespace: cont-gen
+spec:
+  podSelector:
+    matchLabels:
+      app: backend-go
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: kong
+      ports:
+        - protocol: TCP
+          port: 9001
+
+---
+# ─────────────────────────────────────────────
+# Policy 3: Allow backend-go → AI Orchestration (8086)
+# AI Orchestration only accepts traffic from backend-go
+# ─────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-go-to-ai-orchestration
+  namespace: cont-gen
+spec:
+  podSelector:
+    matchLabels:
+      app: ai-orchestration
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend-go
+      ports:
+        - protocol: TCP
+          port: 8086
+
+---
+# ─────────────────────────────────────────────
+# Policy 4: Allow any pod → PostgreSQL (5432)
+# backend-go, ai-orchestration, celery, kong, konga all need DB
+# ─────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-to-postgres
+  namespace: cont-gen
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              tier: backend
+        - podSelector:
+            matchLabels:
+              tier: ai
+        - podSelector:
+            matchLabels:
+              tier: worker
+        - podSelector:
+            matchLabels:
+              tier: gateway
+        - podSelector:
+            matchLabels:
+              tier: admin
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+# ─────────────────────────────────────────────
+# Policy 5: Allow celery-worker + celery-beat → Redis (6379)
+# ─────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-celery-to-redis
+  namespace: cont-gen
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: celery-worker
+        - podSelector:
+            matchLabels:
+              app: celery-beat
+        - podSelector:
+            matchLabels:
+              app: flower
+      ports:
+        - protocol: TCP
+          port: 6379
+
+---
+# ─────────────────────────────────────────────
+# Policy 6: Allow ingress to Flower (5555) — monitoring
+# ─────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-to-flower
+  namespace: cont-gen
+spec:
+  podSelector:
+    matchLabels:
+      app: flower
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 5555
+
+---
+# ─────────────────────────────────────────────
+# Policy 7: Allow ingress to Konga (1337)
+# ─────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-to-konga
+  namespace: cont-gen
+spec:
+  podSelector:
+    matchLabels:
+      app: konga
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 1337
+
+---
+# ─────────────────────────────────────────────
+# Policy 8: Allow ingress to pgAdmin (80)
+# ─────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-to-pgadmin
+  namespace: cont-gen
+spec:
+  podSelector:
+    matchLabels:
+      app: pgadmin
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 80
+
+---
+# ─────────────────────────────────────────────
+# Policy 9: Allow ingress to Kong proxy (8000, 8443)
+# ─────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-to-kong-proxy
+  namespace: cont-gen
+spec:
+  podSelector:
+    matchLabels:
+      app: kong
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 8443
+
+---
+# ─────────────────────────────────────────────
+# Policy 10: Allow Konga → Kong Admin API (8001)
+# ─────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-konga-to-kong-admin
+  namespace: cont-gen
+spec:
+  podSelector:
+    matchLabels:
+      app: kong
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: konga
+      ports:
+        - protocol: TCP
+          port: 8001
+
+---
+# ─────────────────────────────────────────────
+# Policy 11: Allow backend-go → celery (via Redis)
+# backend-go enqueues tasks; celery reads from Redis
+# ─────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-go-to-redis
+  namespace: cont-gen
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend-go
+      ports:
+        - protocol: TCP
+          port: 6379

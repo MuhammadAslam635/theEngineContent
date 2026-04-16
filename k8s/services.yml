@@ -1,0 +1,184 @@
+# ─────────────────────────────────────────────
+# Service: PostgreSQL (ClusterIP — internal)
+# ─────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: cont-gen
+  labels:
+    app: postgres
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres
+  ports:
+    - port: 5236
+      targetPort: 5432
+
+---
+# ─────────────────────────────────────────────
+# Service: Redis (ClusterIP — internal)
+# ─────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: cont-gen
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+
+---
+# ─────────────────────────────────────────────
+# Service: Backend Go (LoadBalancer — public localhost)
+# ─────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-go-service
+  namespace: cont-gen
+  labels:
+    app: backend-go
+spec:
+  type: LoadBalancer
+  selector:
+    app: backend-go
+  ports:
+    - port: 9002
+      targetPort: 9001
+      nodePort: 30902
+
+---
+# ─────────────────────────────────────────────
+# Service: AI Orchestration (ClusterIP — INTERNAL ONLY)
+# Not registered in Kong; only backend-go can reach it
+# ─────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-orchestration-service
+  namespace: cont-gen
+  labels:
+    app: ai-orchestration
+    visibility: internal
+spec:
+  type: ClusterIP
+  selector:
+    app: ai-orchestration
+  ports:
+    - port: 8086
+      targetPort: 8086
+
+---
+# ─────────────────────────────────────────────
+# Service: Kong Proxy (LoadBalancer — public)
+# Frontend hits localhost:8000
+# ─────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-proxy-service
+  namespace: cont-gen
+  labels:
+    app: kong
+spec:
+  type: LoadBalancer
+  selector:
+    app: kong
+  ports:
+    - name: proxy
+      port: 8000
+      targetPort: 8000
+      nodePort: 30800
+    - name: proxy-ssl
+      port: 8443
+      targetPort: 8443
+      nodePort: 30843
+
+---
+# ─────────────────────────────────────────────
+# Service: Kong Admin (ClusterIP — internal only)
+# Konga talks to this internally
+# ─────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-admin-service
+  namespace: cont-gen
+  labels:
+    app: kong
+spec:
+  type: ClusterIP
+  selector:
+    app: kong
+  ports:
+    - name: admin
+      port: 8001
+      targetPort: 8001
+
+---
+# ─────────────────────────────────────────────
+# Service: Konga GUI (LoadBalancer — public localhost)
+# ─────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: konga-service
+  namespace: cont-gen
+  labels:
+    app: konga
+spec:
+  type: LoadBalancer
+  selector:
+    app: konga
+  ports:
+    - port: 1337
+      targetPort: 1337
+      nodePort: 31337
+
+---
+# ─────────────────────────────────────────────
+# Service: Flower (LoadBalancer — public localhost)
+# ─────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: flower-service
+  namespace: cont-gen
+  labels:
+    app: flower
+spec:
+  type: LoadBalancer
+  selector:
+    app: flower
+  ports:
+    - port: 5555
+      targetPort: 5555
+      nodePort: 31555
+
+---
+# ─────────────────────────────────────────────
+# Service: pgAdmin (LoadBalancer — public localhost)
+# ─────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgadmin-service
+  namespace: cont-gen
+  labels:
+    app: pgadmin
+spec:
+  type: LoadBalancer
+  selector:
+    app: pgadmin
+  ports:
+    - port: 5050
+      targetPort: 80
+      nodePort: 31050

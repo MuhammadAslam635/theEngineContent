@@ -1,0 +1,179 @@
+# ─────────────────────────────────────────────
+# Deployment: Celery Worker
+# ─────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+  namespace: cont-gen
+  labels:
+    app: celery-worker
+    tier: worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: celery-worker
+  template:
+    metadata:
+      labels:
+        app: celery-worker
+        tier: worker
+    spec:
+      containers:
+        - name: celery-worker
+          image: contgen/celery-worker:latest   # <-- replace with your image
+          imagePullPolicy: IfNotPresent
+          command: ["celery", "-A", "tasks", "worker", "--loglevel=info", "--concurrency=4"]
+          env:
+            - name: CELERY_BROKER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: celery-config
+                  key: CELERY_BROKER_URL
+            - name: CELERY_RESULT_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: celery-config
+                  key: CELERY_RESULT_BACKEND
+            - name: DB_HOST
+              value: postgres-service
+            - name: DB_PORT
+              value: "5236"
+            - name: DB_NAME
+              value: contgen
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+          livenessProbe:
+            exec:
+              command:
+                - celery
+                - -A
+                - tasks
+                - inspect
+                - ping
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+
+---
+# ─────────────────────────────────────────────
+# Deployment: Celery Beat (scheduler)
+# ─────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-beat
+  namespace: cont-gen
+  labels:
+    app: celery-beat
+    tier: worker
+spec:
+  replicas: 1   # Always 1 for beat scheduler
+  selector:
+    matchLabels:
+      app: celery-beat
+  template:
+    metadata:
+      labels:
+        app: celery-beat
+        tier: worker
+    spec:
+      containers:
+        - name: celery-beat
+          image: contgen/celery-worker:latest
+          imagePullPolicy: IfNotPresent
+          command: ["celery", "-A", "tasks", "beat", "--loglevel=info"]
+          env:
+            - name: CELERY_BROKER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: celery-config
+                  key: CELERY_BROKER_URL
+            - name: CELERY_RESULT_BACKEND
+              valueFrom:
+                configMapKeyRef:
+                  name: celery-config
+                  key: CELERY_RESULT_BACKEND
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "300m"
+
+---
+# ─────────────────────────────────────────────
+# Deployment: Flower (Celery monitoring UI)
+# port 5555 — exposed via LoadBalancer
+# ─────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flower
+  namespace: cont-gen
+  labels:
+    app: flower
+    tier: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flower
+  template:
+    metadata:
+      labels:
+        app: flower
+        tier: monitoring
+    spec:
+      containers:
+        - name: flower
+          image: mher/flower:2.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5555
+          env:
+            - name: CELERY_BROKER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: celery-config
+                  key: CELERY_BROKER_URL
+            - name: FLOWER_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: celery-config
+                  key: FLOWER_PORT
+          command:
+            - celery
+            - flower
+            - --broker=$(CELERY_BROKER_URL)
+            - --port=5555
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "300m"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5555
+            initialDelaySeconds: 20
+            periodSeconds: 15

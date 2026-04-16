@@ -1,0 +1,38 @@
+# ─────────────────────────────────────────────
+# Ingress: Route all API traffic through Kong proxy
+# Kong proxy is already exposed as LoadBalancer on 8000.
+# This Ingress is for clusters that use an Nginx
+# ingress controller in addition to Kong.
+# For pure Kong setups, configure routes via Konga UI
+# or Kong Admin API (see SETUP.md).
+# ─────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kong-ingress
+  namespace: cont-gen
+  annotations:
+    kubernetes.io/ingress.class: "kong"
+    konghq.com/strip-path: "true"
+spec:
+  rules:
+    - http:
+        paths:
+          # Backend Go API — publicly routed via Kong
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: backend-go-service
+                port:
+                  number: 9001
+          # Health check
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: backend-go-service
+                port:
+                  number: 9001
+# NOTE: /ai/* paths are intentionally EXCLUDED from ingress.
+# AI Orchestration is called only by backend-go internally.

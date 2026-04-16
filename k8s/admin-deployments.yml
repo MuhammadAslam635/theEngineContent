@@ -1,0 +1,234 @@
+# ─────────────────────────────────────────────
+# Deployment: Kong API Gateway
+# ─────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kong
+  namespace: cont-gen
+  labels:
+    app: kong
+    tier: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kong
+  template:
+    metadata:
+      labels:
+        app: kong
+        tier: gateway
+    spec:
+      initContainers:
+        - name: kong-migration
+          image: contgen/kong:latest
+          imagePullPolicy: IfNotPresent
+          command: ["kong", "migrations", "bootstrap"]
+          env:
+            - name: KONG_DATABASE
+              value: postgres
+            - name: KONG_PG_HOST
+              value: postgres-service
+            - name: KONG_PG_PORT
+              value: "5236"
+            - name: KONG_PG_DATABASE
+              value: kong
+            - name: KONG_PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: KONG_PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kong-secret
+                  key: KONG_PG_PASSWORD
+      containers:
+        - name: kong
+          image: contgen/kong:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: proxy
+              containerPort: 8000
+            - name: proxy-ssl
+              containerPort: 8443
+            - name: admin
+              containerPort: 8001
+            - name: admin-ssl
+              containerPort: 8444
+          env:
+            - name: KONG_DATABASE
+              value: postgres
+            - name: KONG_PG_HOST
+              value: postgres-service
+            - name: KONG_PG_PORT
+              value: "5236"
+            - name: KONG_PG_DATABASE
+              value: kong
+            - name: KONG_PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: KONG_PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kong-secret
+                  key: KONG_PG_PASSWORD
+            - name: KONG_ADMIN_LISTEN
+              value: "0.0.0.0:8001"
+            - name: KONG_PROXY_LISTEN
+              value: "0.0.0.0:8000"
+            - name: KONG_LOG_LEVEL
+              value: debug
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: 8001
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: 8001
+            initialDelaySeconds: 15
+            periodSeconds: 5
+
+---
+# ─────────────────────────────────────────────
+# Deployment: Konga (Kong Admin GUI)
+# ─────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: konga
+  namespace: cont-gen
+  labels:
+    app: konga
+    tier: admin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: konga
+  template:
+    metadata:
+      labels:
+        app: konga
+        tier: admin
+    spec:
+      containers:
+        - name: konga
+          image: contgen/konga:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 1337
+          env:
+            - name: NODE_ENV
+              value: development
+            - name: DB_ADAPTER
+              value: postgres
+            - name: DB_HOST
+              value: postgres-service
+            - name: DB_PORT
+              value: "5236"
+            - name: DB_DATABASE
+              value: konga
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 1337
+            initialDelaySeconds: 60
+            periodSeconds: 20
+
+---
+# ─────────────────────────────────────────────
+# Deployment: pgAdmin
+# ─────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgadmin
+  namespace: cont-gen
+  labels:
+    app: pgadmin
+    tier: admin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pgadmin
+  template:
+    metadata:
+      labels:
+        app: pgadmin
+        tier: admin
+    spec:
+      securityContext:
+        runAsUser: 5050
+        runAsGroup: 5050
+        fsGroup: 5050
+      containers:
+        - name: pgadmin
+          image: contgen/pgadmin:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          env:
+            - name: PGADMIN_DEFAULT_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: pgadmin-secret
+                  key: PGADMIN_DEFAULT_EMAIL
+            - name: PGADMIN_DEFAULT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: pgadmin-secret
+                  key: PGADMIN_DEFAULT_PASSWORD
+            - name: PGADMIN_CONFIG_SERVER_MODE
+              value: "False"
+          volumeMounts:
+            - name: pgadmin-storage
+              mountPath: /var/lib/pgadmin
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /misc/ping
+              port: 80
+            initialDelaySeconds: 30
+            periodSeconds: 15
+      volumes:
+        - name: pgadmin-storage
+          persistentVolumeClaim:
+            claimName: pgadmin-pvc
