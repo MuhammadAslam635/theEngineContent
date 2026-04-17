@@ -26,15 +26,48 @@ func InitDB(cfg *config.Config) {
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Printf("Warning: Failed to connect to database: %v\n", err)
-	} else {
-		log.Println("Database connection established")
+		return
+	}
+	log.Println("Database connection established")
 
-		// Run AutoMigrate
-		err = DB.AutoMigrate(&models.User{}, &models.AuditLog{}, &models.AiTask{})
-		if err != nil {
-			log.Printf("Warning: AutoMigrate failed: %v\n", err)
-		} else {
-			log.Println("AutoMigrate completed successfully")
-		}
+	// AutoMigrate runs in dependency order so foreign keys resolve correctly.
+	// Add new models here as they are introduced — never remove existing ones.
+	err = DB.AutoMigrate(
+		// --- Existing core tables ---
+		&models.User{},
+		&models.AuditLog{},
+		&models.AiTask{},
+
+		// --- Content Engine: reference / seed tables first ---
+		&models.Platform{},
+		&models.Persona{},
+		&models.NickCredential{},
+
+		// --- Intelligence layer ---
+		&models.CompetitorAccount{},
+		&models.OutlierReel{},
+		&models.HookLibrary{},
+		&models.AngleLibrary{},
+		&models.TrendSignal{},
+
+		// --- Script storehouse ---
+		&models.ApprovedScript{},
+
+		// --- Pipeline ---
+		&models.ContentBrief{},
+		&models.ScriptGenerationAttempt{},
+		&models.SSMLScript{},
+		&models.AgentConfidenceLog{},
+
+		// --- Production ---
+		&models.ContentVideo{},
+		&models.VideoScene{},
+		&models.PostingPackage{},
+		&models.VideoAnalytic{},
+	)
+	if err != nil {
+		log.Printf("Warning: AutoMigrate failed: %v\n", err)
+	} else {
+		log.Println("AutoMigrate completed successfully")
 	}
 }
