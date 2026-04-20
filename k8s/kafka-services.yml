@@ -1,0 +1,40 @@
+# Kafka Services (ClusterIP internal)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-service
+  namespace: cont-gen
+  labels:
+    app: kafka
+spec:
+  type: ClusterIP
+  selector:
+    app: kafka
+  ports:
+    - name: kafka-plaintext
+      port: 9092
+      targetPort: 9092
+    - name: kafka-plaintext-host
+      port: 9093
+      targetPort: 9093
+    - name: kafka-jmx
+      port: 9101
+      targetPort: 9101
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper-service
+  namespace: cont-gen
+  labels:
+    app: zookeeper
+spec:
+  type: ClusterIP
+  selector:
+    app: zookeeper
+  ports:
+    - name: zookeeper-client
+      port: 2181
+      targetPort: 2181
