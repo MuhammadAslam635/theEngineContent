@@ -80,7 +80,7 @@
      ) 
      $dropLines | Set-Content -Path $dropFile -Encoding UTF8 
  
-     kubectl cp "$dropFile" "${postgresPod}:/tmp/drop_all.sql" -n $Namespace -c postgres
+     kubectl cp "drop_all_temp.sql" "${postgresPod}:/tmp/drop_all.sql" -n $Namespace -c postgres
     kubectl exec -n $Namespace $postgresPod -c postgres -- sh -c "PGPASSWORD=postgres psql -U postgres -d $Database -f /tmp/drop_all.sql 2>&1" 
      kubectl exec -n $Namespace $postgresPod -- rm -f /tmp/drop_all.sql 
      Remove-Item $dropFile -ErrorAction SilentlyContinue 
@@ -94,8 +94,21 @@
  # --------------------------------------------------------------------------- 
  Write-Host "Ensuring schema_migrations table exists..." -ForegroundColor Yellow 
  
- $createMigrationsTable = "CREATE TABLE IF NOT EXISTS schema_migrations (id SERIAL PRIMARY KEY, version VARCHAR(255) UNIQUE NOT NULL, description TEXT, applied_at TIMESTAMPTZ DEFAULT NOW());" 
- kubectl exec -n $Namespace $postgresPod -c postgres -- sh -c "PGPASSWORD=postgres psql -U postgres -d $Database -c `"$createMigrationsTable`" 2>&1" | Out-Null 
+ # Write CREATE TABLE to a temp file to avoid PowerShell string escaping issues 
+ $createFile = Join-Path $PSScriptRoot "create_schema_migrations_temp.sql" 
+ @( 
+     "CREATE TABLE IF NOT EXISTS schema_migrations (", 
+     "  id SERIAL PRIMARY KEY,", 
+     "  version VARCHAR(255) UNIQUE NOT NULL,", 
+     "  description TEXT,", 
+     "  applied_at TIMESTAMPTZ DEFAULT NOW()", 
+     ");" 
+ ) | Set-Content -Path $createFile -Encoding UTF8 
+ 
+ kubectl cp "create_schema_migrations_temp.sql" "${postgresPod}:/tmp/create_schema_migrations.sql" -n $Namespace -c postgres 2>$null 
+ kubectl exec -n $Namespace $postgresPod -c postgres -- sh -c "PGPASSWORD=postgres psql -U postgres -d $Database -f /tmp/create_schema_migrations.sql 2>&1" | Out-Null 
+ kubectl exec -n $Namespace $postgresPod -c postgres -- rm -f /tmp/create_schema_migrations.sql 2>$null 
+ Remove-Item $createFile -ErrorAction SilentlyContinue 
  
  Write-Host "schema_migrations table ready." -ForegroundColor Green 
  Write-Host "" 
@@ -174,9 +187,9 @@
      Write-Host "RUN   $($file.Name)" -ForegroundColor Yellow 
  
      $tempFile    = "/tmp/migration_${version}.sql" 
-     $relativePath = "migrations/$($file.Name)" 
+     $localPath   = "migrations/$($file.Name)" 
  
-     kubectl cp "$relativePath" "${postgresPod}:${tempFile}" -n $Namespace -c postgres 2>$null 
+     kubectl cp "$localPath" "${postgresPod}:${tempFile}" -n $Namespace -c postgres 2>$null 
  
      if ($LASTEXITCODE -ne 0) { 
          Write-Host "  ERROR: Failed to copy file to pod" -ForegroundColor Red 
@@ -202,7 +215,8 @@
          ) 
          $recordLines | Set-Content -Path $recordFile -Encoding UTF8 
          
-         kubectl cp "$recordFile" "${postgresPod}:/tmp/record_migration.sql" -n $Namespace -c postgres 2>$null 
+         $recordFileUnix = "record_migration_temp.sql" 
+         kubectl cp "$recordFileUnix" "${postgresPod}:/tmp/record_migration.sql" -n $Namespace -c postgres 2>$null 
          $recordOutput = kubectl exec -n $Namespace $postgresPod -c postgres -- sh -c "PGPASSWORD=postgres psql -U postgres -d $Database -f /tmp/record_migration.sql 2>&1" 
          Remove-Item $recordFile -ErrorAction SilentlyContinue 
          kubectl exec -n $Namespace $postgresPod -c postgres -- rm -f /tmp/record_migration.sql 2>$null 

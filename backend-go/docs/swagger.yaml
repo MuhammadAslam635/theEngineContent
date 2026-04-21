@@ -1,0 +1,209 @@
+basePath: /
+definitions:
+  dto.CreateAgentSettingRequest:
+    type: object
+  dto.FetchProfileRequest:
+    properties:
+      channel_name:
+        type: string
+      platform:
+        enum:
+        - youtube
+        - instagram
+        - facebook
+        type: string
+    required:
+    - channel_name
+    - platform
+    type: object
+  dto.UpdateAgentSettingRequest:
+    type: object
+host: localhost:9001
+info:
+  contact: {}
+  description: API for the cont-gen Content Engine platform
+  title: cont-gen Backend API
+  version: "1.0"
+paths:
+  /agents/{id}:
+    get:
+      parameters:
+      - description: Agent Setting ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get agent setting by ID
+      tags:
+      - Agent Settings
+  /agents/all:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: List all agent settings
+      tags:
+      - Agent Settings
+  /agents/by-name/{name}:
+    get:
+      parameters:
+      - description: Agent Name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Get agent setting by name
+      tags:
+      - Agent Settings
+  /agents/create:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Agent Setting
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/dto.CreateAgentSettingRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Create agent setting
+      tags:
+      - Agent Settings
+  /agents/delete/{id}:
+    delete:
+      parameters:
+      - description: Agent Setting ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Delete agent setting
+      tags:
+      - Agent Settings
+  /agents/update/{id}:
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Agent Setting ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/dto.UpdateAgentSettingRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Update agent setting
+      tags:
+      - Agent Settings
+  /social/fetch-profile:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Platform and channel name
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/dto.FetchProfileRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Fetch social media channel profile
+      tags:
+      - Social Profiles
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

@@ -10,6 +10,8 @@ type Config struct {
 	DBUser             string
 	DBPassword         string
 	AIOrchestrationURL string
+	SociaVaultAPIKey   string
+	SociaVaultBaseURL  string
 }
 
 func LoadConfig() *Config {
@@ -21,6 +23,8 @@ func LoadConfig() *Config {
 		DBUser:             getEnv("DB_USER", "postgres"),
 		DBPassword:         getEnv("DB_PASSWORD", "postgres"),
 		AIOrchestrationURL: getEnv("AI_ORCHESTRATION_URL", "http://ai-orchestration-service:8086"),
+		SociaVaultAPIKey:   getEnv("SOCIAVAULT_API", ""),
+		SociaVaultBaseURL:  getEnv("SOCIAVAULT_BASE_URL", "https://api.sociavault.com/v1/scrape/"),
 	}
 }
 

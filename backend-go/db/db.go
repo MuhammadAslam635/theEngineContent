@@ -64,6 +64,12 @@ func InitDB(cfg *config.Config) {
 		&models.VideoScene{},
 		&models.PostingPackage{},
 		&models.VideoAnalytic{},
+
+		// --- Agent Settings ---
+		&models.AgentSetting{},
+
+		// --- Social Profiles ---
+		&models.YouTubeChannel{},
 	)
 	if err != nil {
 		log.Printf("Warning: AutoMigrate failed: %v\n", err)

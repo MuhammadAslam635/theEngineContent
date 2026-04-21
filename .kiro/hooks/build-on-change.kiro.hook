@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "name": "Build Service on Change",
+  "description": "After the agent completes work, automatically build the Docker image for the service that was modified (backend-go, ai-orchestration, or celery-worker).",
+  "version": "1",
+  "when": {
+    "type": "agentStop"
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Check which service files were modified in this session (backend-go, ai-orchestration, or celery-worker). If backend-go files were changed, run: ./build_images.ps1 -BackendGoOnly. If ai-orchestration files were changed, run: ./build_images.ps1 -AiOrchestrationOnly. If celery-worker files were changed, run: ./build_images.ps1 -CeleryWorkerOnly. If multiple services were changed, run the appropriate flags together. If only non-service files were changed (like docs, migrations, k8s manifests), skip the build."
+  },
+  "workspaceFolderName": "theEngineContent",
+  "shortName": "build-on-change"
+}

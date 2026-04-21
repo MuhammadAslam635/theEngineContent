@@ -1,0 +1,269 @@
+{
+  "info": {
+    "name": "cont-gen Backend Go",
+    "description": "Full API collection for the cont-gen Backend Go service.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:9001",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Simple liveness check. Returns 200 OK."
+          }
+        },
+        {
+          "name": "Readiness Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/ready",
+              "host": ["{{base_url}}"],
+              "path": ["ready"]
+            },
+            "description": "Readiness check — verifies DB connection."
+          }
+        },
+        {
+          "name": "AI Orchestration Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/ai-health",
+              "host": ["{{base_url}}"],
+              "path": ["ai-health"]
+            },
+            "description": "Checks if the AI Orchestration service is reachable and healthy."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var json = pm.response.json();",
+                  "    pm.collectionVariables.set('token', json.token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"mypassword123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Authenticate and receive a JWT token. Token is auto-saved to collection variable."
+          }
+        },
+        {
+          "name": "Forget Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/forget-password",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "forget-password"]
+            },
+            "description": "Request a password reset OTP sent to the user's email."
+          }
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"otp\": \"123456\",\n  \"email\": \"user@example.com\",\n  \"new_password\": \"newpass1234\",\n  \"confirm_password\": \"newpass1234\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/reset-password",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "reset-password"]
+            },
+            "description": "Reset password using the OTP received via email."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Agent Settings",
+      "item": [
+        {
+          "name": "Get All Agents",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/agents/all",
+              "host": ["{{base_url}}"],
+              "path": ["agents", "all"]
+            },
+            "description": "List all agent settings ordered by creation date (newest first)."
+          }
+        },
+        {
+          "name": "Get Agent by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/agents/1",
+              "host": ["{{base_url}}"],
+              "path": ["agents", "1"]
+            },
+            "description": "Get a single agent setting by its ID. Replace '1' with the actual ID."
+          }
+        },
+        {
+          "name": "Get Agent by Name",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/agents/by-name/CompanyResearchAgent",
+              "host": ["{{base_url}}"],
+              "path": ["agents", "by-name", "CompanyResearchAgent"]
+            },
+            "description": "Get a single agent setting by its agent_name. Replace 'CompanyResearchAgent' with the actual name."
+          }
+        },
+        {
+          "name": "Create Agent",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"agent_name\": \"CompanyResearchAgent\",\n  \"supervisor\": \"LeadEnrichmentSupervisor\",\n  \"provider\": \"openai\",\n  \"model_name\": \"gpt-4o\",\n  \"prompt\": \"Research the company {{company_name}} in the {{industry}} industry. Provide key insights.\",\n  \"variables\": [\n    { \"key\": \"company_name\", \"description\": \"Target company name\", \"required\": true },\n    { \"key\": \"industry\", \"description\": \"Industry vertical\", \"required\": false }\n  ],\n  \"output_type\": \"json\",\n  \"output_schema\": {\n    \"type\": \"object\",\n    \"properties\": {\n      \"company_summary\": { \"type\": \"string\" },\n      \"market_position\": { \"type\": \"string\" },\n      \"key_competitors\": { \"type\": \"array\", \"items\": { \"type\": \"string\" } }\n    },\n    \"required\": [\"company_summary\"]\n  },\n  \"temperature\": 0.5,\n  \"max_tokens\": 4096,\n  \"is_active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/agents/create",
+              "host": ["{{base_url}}"],
+              "path": ["agents", "create"]
+            },
+            "description": "Create a new agent setting with prompt, variables, and output configuration."
+          }
+        },
+        {
+          "name": "Update Agent",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Updated prompt for {{company_name}}\",\n  \"temperature\": 0.9,\n  \"is_active\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/agents/update/1",
+              "host": ["{{base_url}}"],
+              "path": ["agents", "update", "1"]
+            },
+            "description": "Partial update — only send fields you want to change. Replace '1' with actual ID."
+          }
+        },
+        {
+          "name": "Delete Agent",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/agents/delete/1",
+              "host": ["{{base_url}}"],
+              "path": ["agents", "delete", "1"]
+            },
+            "description": "Permanently delete an agent setting. Replace '1' with actual ID."
+          }
+        }
+    {
+      "name": "Social Profiles",
+      "item": [
+        {
+          "name": "Fetch Channel Profile",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"platform\": \"youtube\",\n  \"channel_name\": \"@ThePatMcAfeeShow\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/social/fetch-profile",
+              "host": ["{{base_url}}"],
+              "path": ["social", "fetch-profile"]
+            },
+            "description": "Fetch a social media channel profile from SociaVault and save it. Platform: youtube, instagram, facebook. channel_name: @handle or URL/ID."
+          }
+        }
+      ]
+    }
+  ]
+}
